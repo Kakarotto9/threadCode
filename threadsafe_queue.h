@@ -1,3 +1,5 @@
+#pragma once
+
 #include<cstdio>
 #include<memory>
 #include<mutex>
@@ -35,10 +37,14 @@ class threadsafe_queue{
 		}
 		unique_lock<mutex> wait_for_data(){
 			std::unique_lock<mutex> head_lock(head_mutex);
-			cond.wait(head_lock,[this]{return head.get()!=get_tail();}); //
+			cond.wait(head_lock,[this]{return head.get()!=get_tail();}); //注意，这里wait等待的是head_mutex，而不是tail_mutex
 			return std::move(head_lock);
 		}
 		unique_ptr<node> try_pop_head(){
+			/* 如果将get_tai()放置到前边，会出现数据竞争，极端情况下会导致获取的old_tail所指对象被pop中移除掉
+			node* old_tail=get_tail()
+			std::lock_guard<mutex> head_lock(head_mutex);
+			 */
 			std::lock_guard<mutex> head_lock(head_mutex);
 			if(head.get()==get_tail())
 				return unique_ptr<node> ();
@@ -50,17 +56,16 @@ class threadsafe_queue{
 			{
 				return unique_ptr<node> ();
 			}
-			value=std::move(*head->data);  //
+			value=std::move(*head->data);  // 需要放到pop_head()前面，这是为了异常安全考虑
 			return pop_head();
 		}
 		unique_ptr<node> wait_pop_head(){
-
 			std::unique_lock<mutex> head_lock (wait_for_data());
 			return pop_head();
 		}
 		void wait_pop_head(T& value){
 			std::unique_lock<mutex> head_lock(wait_for_data());
-			value=std::move(*head->data); // 
+			value=std::move(*head->data); //pop head()放后面
 			pop_head();
 		}
 
